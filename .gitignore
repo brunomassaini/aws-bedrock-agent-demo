@@ -1,0 +1,41 @@
+# Python
+*.swp
+package-lock.json
+__pycache__
+.pytest_cache
+.venv
+*.egg-info
+*.pyc
+
+# CDK
+.cdk.staging
+cdk.out
+cdk.context.json
+
+# Environment files
+.env
+.env.local
+*.env
+
+# AWS
+response.json
+response*.json
+test-payload*.json
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Docker
+docker-compose.override.yml

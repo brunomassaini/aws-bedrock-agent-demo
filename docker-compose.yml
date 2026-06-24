@@ -1,0 +1,31 @@
+version: '3.8'
+
+services:
+  discord-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: bedrock-discord-bot
+    restart: unless-stopped
+    environment:
+      # Discord Configuration
+      - DISCORD_BOT_TOKEN=${DISCORD_BOT_TOKEN}
+      - AUTHORIZED_USER_ID=${AUTHORIZED_USER_ID}
+
+      # AWS Configuration
+      - LAMBDA_FUNCTION_NAME=${LAMBDA_FUNCTION_NAME}
+      - AWS_REGION=${AWS_REGION:-us-west-2}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_SESSION_TOKEN=${AWS_SESSION_TOKEN:-}
+
+    # Optional: mount AWS credentials from host
+    volumes:
+      - ${HOME}/.aws:/root/.aws:ro
+
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
