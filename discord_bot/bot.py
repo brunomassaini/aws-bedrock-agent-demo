@@ -26,8 +26,8 @@ intents = discord.Intents.default()
 intents.message_content = True
 intents.dm_messages = True
 
-# Create bot instance
-bot = commands.Bot(command_prefix='/', intents=intents)
+# Create bot instance (disable default help command to avoid conflicts)
+bot = commands.Bot(command_prefix='/', intents=intents, help_command=None)
 
 
 @bot.event
