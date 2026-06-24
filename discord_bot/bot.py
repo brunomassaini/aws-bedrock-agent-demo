@@ -15,11 +15,12 @@ logger = logging.getLogger(__name__)
 # Environment variables
 DISCORD_BOT_TOKEN = os.environ['DISCORD_BOT_TOKEN']
 AUTHORIZED_USER_ID = os.environ['AUTHORIZED_USER_ID']
-LAMBDA_FUNCTION_NAME = os.environ['LAMBDA_FUNCTION_NAME']
+BEDROCK_AGENT_ID = os.environ['BEDROCK_AGENT_ID']
+BEDROCK_AGENT_ALIAS_ID = os.environ.get('BEDROCK_AGENT_ALIAS_ID', 'TSTALIASID')
 AWS_REGION = os.environ.get('AWS_REGION', 'us-west-2')
 
-# Initialize AWS Lambda client
-lambda_client = boto3.client('lambda', region_name=AWS_REGION)
+# Initialize AWS Bedrock Agent Runtime client
+bedrock_agent_runtime = boto3.client('bedrock-agent-runtime', region_name=AWS_REGION)
 
 # Configure Discord bot intents
 intents = discord.Intents.default()
@@ -35,7 +36,8 @@ async def on_ready():
     """Called when the bot is ready."""
     logger.info(f'Bot logged in as {bot.user.name} (ID: {bot.user.id})')
     logger.info(f'Authorized user ID: {AUTHORIZED_USER_ID}')
-    logger.info(f'Lambda function: {LAMBDA_FUNCTION_NAME}')
+    logger.info(f'Bedrock Agent ID: {BEDROCK_AGENT_ID}')
+    logger.info(f'Agent Alias: {BEDROCK_AGENT_ALIAS_ID}')
     logger.info('Bot is ready and listening for messages!')
 
 
@@ -66,43 +68,45 @@ async def on_message(message):
     # Show typing indicator
     async with message.channel.typing():
         try:
-            # Call Lambda function
+            # Call Bedrock Agent directly
             logger.info(f'Processing message from user {message.author.id}: {message.content[:50]}...')
 
-            payload = {
-                'user_id': str(message.author.id),
-                'message': message.content
-            }
+            session_id = f"discord_user_{message.author.id}"
 
-            response = lambda_client.invoke(
-                FunctionName=LAMBDA_FUNCTION_NAME,
-                InvocationType='RequestResponse',
-                Payload=json.dumps(payload)
+            # Invoke Bedrock Agent
+            response = bedrock_agent_runtime.invoke_agent(
+                agentId=BEDROCK_AGENT_ID,
+                agentAliasId=BEDROCK_AGENT_ALIAS_ID,
+                sessionId=session_id,
+                inputText=message.content
             )
 
-            # Parse Lambda response
-            response_payload = json.loads(response['Payload'].read())
-            logger.debug(f'Lambda response: {response_payload}')
+            # Parse streaming response
+            agent_response = ""
+            event_stream = response['completion']
 
-            if response_payload.get('statusCode') == 200:
-                body = json.loads(response_payload['body'])
-                agent_response = body.get('response', 'No response from agent')
+            for event in event_stream:
+                if 'chunk' in event:
+                    chunk = event['chunk']
+                    if 'bytes' in chunk:
+                        chunk_text = chunk['bytes'].decode('utf-8')
+                        agent_response += chunk_text
+                elif 'trace' in event:
+                    logger.debug(f"Trace event: {event['trace']}")
 
-                # Split long messages if needed (Discord has 2000 char limit)
-                if len(agent_response) <= 2000:
-                    await message.channel.send(agent_response)
-                else:
-                    # Split into chunks
-                    chunks = [agent_response[i:i+2000] for i in range(0, len(agent_response), 2000)]
-                    for chunk in chunks:
-                        await message.channel.send(chunk)
+            agent_response = agent_response.strip()
+            logger.info(f'Agent response: {agent_response[:100]}...')
 
-                logger.info('Message processed successfully')
+            # Split long messages if needed (Discord has 2000 char limit)
+            if len(agent_response) <= 2000:
+                await message.channel.send(agent_response)
             else:
-                error_body = json.loads(response_payload.get('body', '{}'))
-                error_message = error_body.get('error', 'Unknown error')
-                logger.error(f'Lambda error: {error_message}')
-                await message.channel.send(f"Sorry, I encountered an error: {error_message}")
+                # Split into chunks
+                chunks = [agent_response[i:i+2000] for i in range(0, len(agent_response), 2000)]
+                for chunk in chunks:
+                    await message.channel.send(chunk)
+
+            logger.info('Message processed successfully')
 
         except Exception as e:
             logger.error(f'Error processing message: {str(e)}', exc_info=True)
@@ -121,7 +125,7 @@ async def status_command(ctx):
 🟢 Online and running
 **User ID**: {ctx.author.id}
 **Session ID**: discord_user_{ctx.author.id}
-**Lambda**: {LAMBDA_FUNCTION_NAME}
+**Agent ID**: {BEDROCK_AGENT_ID}
 **Region**: {AWS_REGION}
 
 Your conversation context is maintained for 10 minutes after your last message.
@@ -165,7 +169,7 @@ def main():
     logger.info('Starting Discord bot...')
 
     # Validate environment variables
-    required_vars = ['DISCORD_BOT_TOKEN', 'AUTHORIZED_USER_ID', 'LAMBDA_FUNCTION_NAME']
+    required_vars = ['DISCORD_BOT_TOKEN', 'AUTHORIZED_USER_ID', 'BEDROCK_AGENT_ID']
     missing_vars = [var for var in required_vars if not os.environ.get(var)]
 
     if missing_vars:
